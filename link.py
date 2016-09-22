@@ -1,12 +1,24 @@
-from enum import Enum
+from enum import Enum, unique
 import json
 
 
 class Message(object):
     """Message/ Event. Subclasses should implement method _json_data or json."""
+    @unique
     class Type(Enum):
         """Message Type"""
         Echo = 1
+        Deploy = 2
+        Attack = 3
+        Move = 4
+        Finished = 5
+        Board = 6
+        Players = 7
+        Card = 8
+        BonusTroops = 9
+        GameEnd = 10
+        Kick = 11
+        Quit = 12
 
     def __init__(self, msg_type):
         self.type = msg_type
@@ -24,7 +36,7 @@ class Message(object):
 class EchoMessage(Message):
     """docstring for EchoMessage."""
     def __init__(self, data):
-        super(EchoMessage, self).__init__(Message.Type.Echo)
+        Message.__init__(Message.Type.Echo)
         self.data = data
 
     def json(self):

@@ -57,17 +57,17 @@ class Controller(Server.Callbacks):
 
     async def message(self, player, payload):
         try:
-            msg_type, message = self.message_parser.parse(payload)
-            self.dispatch_message(player, msg_type, message)
+            message = self.message_parser.parse(payload)
+            self.dispatch_message(player, message)
         except ParseError:
             print('parsing failed: ', payload)
             if self.logic and self.logic.is_ingame(player):
                 self.logic.kick(player)
 
-    def dispatch_message(self, player, message_type, payload):
-        if message_type == Message.Type.Echo:
-            print('Echo message:', payload)
-            self.server.send_message(player, payload)
+    def dispatch_message(self, player, message):
+        if message.type == Message.Type.Echo:
+            print('Echo message:', message)
+            self.server.send_message(player, message)
         else:
             print('Unknown message type', message_type)
 

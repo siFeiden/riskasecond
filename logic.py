@@ -160,13 +160,37 @@ class Logic(object):
     def _check_attack(self, origin, destination, attack_troops):
         return (self._current_player_is_owner(origin)
                 and not self._current_player_is_owner(destination)
-                and origin.troops >= attack_troops
+                and origin.troops > attack_troops  # one troop must remain
                 and self._between(attack_troops, 1, 3))
 
     def _do_attack(self, origin, destination, attack_troops):
-        pass  # TODO: implement
-        # don't forget to update current_player.owned_countries and
-        # current_player.conquered_country_in_turn
+        defend_troops = min(attack_troops, destination.troops, 2)
+
+        attack_dice = self._roll_dice(attack_troops)
+        defend_dice = self._roll_dice(defend_troops)
+
+        for (a, d) in zip(attack_dice, defend_dice):
+            if a > d:  # attacker won
+                destination.troops -= 1
+            else:  # defender won
+                origin.troops -= 1
+
+        if destination.troops == 0:
+            # defending country is conquered
+            destination.owner.owned_countries -= 1
+            self.current_player.owned_countries += 1
+
+            destination.troops = attack_troops
+            destination.owner = self.current_player
+
+            self.current_player.conquered_country_in_turn = True
+
+
+
+
+    @staticmethod
+    def _roll_dice(n):
+        return [random.randint(1, 6) for _ in range(n)].sort(reverse = True)
 
 
     def _check_move(self, origin, destination, troops):

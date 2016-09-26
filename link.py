@@ -6,7 +6,7 @@ class Message(object):
     """Message/ Event. Subclasses should implement method _json_data or json."""
     @unique
     class Type(Enum):
-        """Message Type"""
+        """Message type. Can be used as a decorator."""
         Echo = 1
         Deploy = 2
         Attack = 3
@@ -20,23 +20,24 @@ class Message(object):
         Kick = 11
         Quit = 12
 
-    def __init__(self, msg_type):
-        self.type = msg_type
+        def __call__(self, cls):
+            cls.type = self
+            return cls
 
     def _json_data(self):
-        return str(self)
+        raise NotImplementedError
 
     def json(self):
-        data = self._json_data()
         return {
             'type': self.type.value,
-            'data': data
+            'data': self._json_data()
         }
 
+
+@Message.Type.Echo
 class EchoMessage(Message):
-    """docstring for EchoMessage."""
+    """Replies with the content."""
     def __init__(self, data):
-        Message.__init__(Message.Type.Echo)
         self.data = data
 
     def json(self):
@@ -56,8 +57,9 @@ class MessageParser(object):
             message_type = Message.Type(payload_json['type'])
             message_class = self.type_to_class[message_type]
             message_data = payload_json['data']
+            message_id = payload_json.get('id', None)
 
-            return message_class(message_data)
+            return message_class(message_data, message_id)
         except (json.JSONDecodeError, ValueError, KeyError):
             raise ParseError
 
@@ -65,3 +67,42 @@ class MessageParser(object):
 class ParseError(Exception):
     """Thrown when parsing fails."""
     pass
+
+
+"""
+class Message(object):
+    def __init__(self, fields, data):
+        for attr in fields:
+            try:
+                setattr(self, attr, data[attr])
+            except KeyError:
+                raise ParseError("Missing field %s" % attr)
+
+    def _json_data(self):
+        raise NotImplementedError
+
+    def json(self):
+        data = self._json_data()
+        return {
+            'type': self.type.value,
+            'data': data
+        }
+
+
+def messageClassFactory(name, fields, base_class=Message):
+    def __init__(self, data):
+        base_class.__init__(self, fields, data)
+
+    def _json_data(self):
+        json_data = {}
+        for attr in fields:
+            json_data[attr] = getattr(self, attr)
+        return json_data
+
+    new_class = type(name, (base_class,), {
+        '__init__', __init__,
+        '_json_data', _json_data,
+    })
+
+    return new_class
+"""

@@ -3,12 +3,14 @@ import random
 
 import transitions
 
+
 @unique
 class Card(Enum):
     """Card."""
     INFANTRY = 1
     CAVALRY = 2
     ARTILLERY = 3
+
 
 class Redeem(Enum):
     """Redeem three Cards for bonus troops."""
@@ -21,7 +23,7 @@ class Redeem(Enum):
 class Player(object):
     """Wrap a player identifier with additional information
         used during a game."""
-    def __init__(self, ident):
+    def __init__(self, ident, send_message):
         self.ident = ident
         self.owned_countries = 0
         # used to check if player may draw a card
@@ -30,6 +32,12 @@ class Player(object):
         self.available_troops = 0
         # player's bonus cards
         self.cards = []
+        # send_message :: PlayerId -> Message -> ()
+        # async. sends a message to a player
+        self._send_message = send_message
+
+    def notify(self, message):
+        self._send_message(self.ident, message)
 
     def __eq__(self, other):
         return self.ident == other.ident
@@ -43,13 +51,19 @@ class Player(object):
 
 class Logic(object):
     """Implements the Logic for a game of Risk"""
-    def __init__(self, board, players):
+    def __init__(self, board, players, send_message):
+        # send_message :: PlayerId -> Message -> ()
+        # async. sends a message to a player
+
         self.board = board
-        # contains all players except the current one
-        players = list(map(Player, players))
-        self.players = players[1:]
+
+        self.players = []
+        for ident in players:
+            self.players.apend(Player(ident, send_message))
         # player whose turn it is now
-        self.current_player = players[0]
+        self.current_player = self.players[0]
+        # contains all players except the current one
+        self.players = self.players[1:]
 
         # State machine that checks if an action is
         # allowed for the current player right now
@@ -146,6 +160,8 @@ class Logic(object):
         for card in redeem_cards:
             player_cards.remove(card)
 
+        player.notify(Redeemed(redeem))
+
 
 
     def _check_deploy(self, country, troops):
@@ -156,6 +172,8 @@ class Logic(object):
         country.troops += troops
         self.current_player.available_troops -= troops
 
+        player.notify(Deployed(country, troops))
+
 
     def _check_attack(self, origin, destination, attack_troops):
         return (self._current_player_is_owner(origin)
@@ -164,33 +182,44 @@ class Logic(object):
                 and self._between(attack_troops, 1, 3))
 
     def _do_attack(self, origin, destination, attack_troops):
+        attacker = self.current_player
+        defender = destination.owner
+
         defend_troops = min(attack_troops, destination.troops, 2)
 
         attack_dice = self._roll_dice(attack_troops)
         defend_dice = self._roll_dice(defend_troops)
 
+        attack_losses = 0
+        defend_losses = 0
         for (a, d) in zip(attack_dice, defend_dice):
             if a > d:  # attacker won
-                destination.troops -= 1
+                defend_losses += 1
             else:  # defender won
-                origin.troops -= 1
+                attack_losses += 1
+
+        origin.troops -= attack_losses
+        destination.troops -= defend_losses
 
         if destination.troops == 0:
             # defending country is conquered
-            destination.owner.owned_countries -= 1
-            self.current_player.owned_countries += 1
+            defender.owned_countries -= 1
+            attacker.owned_countries += 1
 
             destination.troops = attack_troops
-            destination.owner = self.current_player
+            destination.owner = attacker
 
-            self.current_player.conquered_country_in_turn = True
+            attacker.conquered_country_in_turn = True
 
-
-
+            attacker.notify(Conquered(destination))
+            defender.notify(Defeated(destination))
+        else:
+            attacker.notify(Attacked(destination, attack_losses))
+            defender.notify(Defended(destination, defend_losses))
 
     @staticmethod
     def _roll_dice(n):
-        return [random.randint(1, 6) for _ in range(n)].sort(reverse = True)
+        return [random.randint(1, 6) for _ in range(n)].sort(reverse=True)
 
 
     def _check_move(self, origin, destination, troops):
@@ -202,6 +231,7 @@ class Logic(object):
     def _do_move(self, origin, destination, troops):
         origin.troops -= troops
         destination.troops += troops
+        self.current_player.notify(Moved(origin, destination, troops))
 
 
     def _check_get_card(self):
@@ -210,6 +240,7 @@ class Logic(object):
     def _do_get_card(self):
         new_card = random.choice(list(Card))
         self.current_player.cards.append(new_card)
+        self.current_player.notify(GotCard(new_card))
 
 
     def _current_player_is_owner(self, country):

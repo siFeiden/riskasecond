@@ -3,12 +3,14 @@ import random
 
 import transitions
 
+
 @unique
 class Card(Enum):
     """Card."""
     INFANTRY = 1
     CAVALRY = 2
     ARTILLERY = 3
+
 
 class Redeem(Enum):
     """Redeem three Cards for bonus troops."""
@@ -41,89 +43,37 @@ class Player(object):
         return hash(self.ident)
 
 
-class Logic(object):
-    """Implements the Logic for a game of Risk"""
-    def __init__(self, board, players):
+class Action(object):
+    def __init__(self, board):
         self.board = board
-        # contains all players except the current one
-        players = list(map(Player, players))
-        self.players = players[1:]
-        # player whose turn it is now
-        self.current_player = players[0]
 
-        # State machine that checks if an action is
-        # allowed for the current player right now
-        # and if so performs the action.
-        initial = 'initial'
-        redeem  = 'redeem'
-        deploy  = 'deploy'
-        attack  = 'attack'
-        move    = 'move'
-        card    = 'card'
-        finish  = 'finish'
+    def prepare(self, message):
+        self.current_message = message
 
-        states = [initial, redeem, deploy, attack, move, card, finish]
+    def is_permitted(self, _):
+        return True
 
-        trans = [  # [name, from|[froms], to]
-            {
-                'trigger': 'redeem_cards',
-                'source': initial,
-                'dest': redeem,
-                'conditions': '_check_redeem',
-                'after': '_do_redeem',
-            }, {
-                'trigger': 'deploy_troops',
-                'source': [initial, redeem, deploy],
-                'dest': deploy,
-                'conditions': '_check_deploy',
-                'after': '_do_deploy',
-            }, {
-                'trigger': 'attack_country',
-                'source': [deploy, attack],
-                'dest': attack,
-                'conditions': '_check_attack',
-                'after': '_do_attack',
-            }, {
-                'trigger': 'move_troops',
-                'source': [deploy, attack, card],
-                'dest': move,
-                'conditions': '_check_move',
-                'after': '_do_move',
-            }, {
-                'trigger': 'get_card',
-                'source': attack,
-                'dest': card,
-                'conditions': '_check_get_card',
-                'after': '_do_get_card',
-            }, {
-                'trigger': 'end_turn',
-                'source': [deploy, attack, card, move],
-                'dest': finish,
-                # 'after': 'next_move'
-            }
-        ]
+    def execute(self, _):
+        pass
 
-        self.machine = transitions.Machine(
-            self,
-            states=states,
-            transitions=trans,
-            initial=initial,
-            auto_transitions=False
-        )
+    def next_turn(self, player):
+        self.current_player = player
 
-    # State Machine:
-    # _check_X methods verify if action X is allowed for the current player.
-    # _do_X methods actually apply action X.
-    # Both _check_X and _do_X are called with the same parameters in the
-    # following order:
-    # 1. _check_X is called to check if a transition in the state machine
-    #    is possible with the given parameters. (Return True/ False)
-    # 2. If so, _do_X is called with the same parameters to execute the action.
-    # Note: If not, neither _do_X and nor any other method is called at all.
+    def answer(self, message, player=None):
+        if player is None:
+            player = self.current_player
 
-    def _check_redeem(self, redeem):
+        self.current_message.add_answer(player, message)
+
+
+class BonusAction(Action):
+    def prepare(self, message):
+        super().prepare(message)
+        self.redeem = None  # TODO
+
+    def is_permitted(self, _):
         player_cards = self.current_player.cards.copy()
-        redeem_cards, _ = redeem.value
+        redeem_cards, _ = self.redeem.value
 
         # check if player has every card needed to redeem what he claims
         for card in redeem_cards:
@@ -136,98 +86,219 @@ class Logic(object):
         # player has all cards
         return True
 
-    def _do_redeem(self, redeem):
+    def execute(self, _):
         player = self.current_player
         player_cards = player.cards
 
-        redeem_cards, value = redeem.value
+        redeem_cards, value = self.redeem.value
         player.available_troops += value
 
         for card in redeem_cards:
             player_cards.remove(card)
 
+        self.answer(Redeemed(redeem))
 
 
-    def _check_deploy(self, country, troops):
-        return (self._current_player_is_owner(country)
-                and self.current_player.available_troops >= troops)
+class DeployAction(Action):
+    def prepare(self, message):
+        super().prepare(message)
+        self.country = self.board.country_for_name(message.country)
+        self.troops = message.troops
 
-    def _do_deploy(self, country, troops):
-        country.troops += troops
-        self.current_player.available_troops -= troops
+    def is_permitted(self, _):
+        return (self.current_player == self.country.owner
+                and self.current_player.available_troops >= self.troops)
+
+    def execute(self, _):
+        self.country.troops += self.troops
+        self.current_player.available_troops -= self.troops
+
+        self.answer(Deployed(self.country, self.troops))
 
 
-    def _check_attack(self, origin, destination, attack_troops):
-        return (self._current_player_is_owner(origin)
-                and not self._current_player_is_owner(destination)
-                and origin.troops > attack_troops  # one troop must remain
-                and self._between(attack_troops, 1, 3))
+class AttackAction(Action):
+    def prepare(self, message):
+        super().prepare(message)
+        self.origin = self.board.country_for_name(message.origin)
+        self.destination = self.board.country_for_name(message.destination)
+        self.attack_troops = message.attack_troops
 
-    def _do_attack(self, origin, destination, attack_troops):
-        defend_troops = min(attack_troops, destination.troops, 2)
+
+    def is_permitted(self, _):
+        return (self._current_player_is_owner(self.origin)
+                and not self._current_player_is_owner(self.destination)
+                and self.origin.troops > self.attack_troops  # one troop must remain
+                and self.attack_troops >= 1
+                and self.attack_troops <= 3)
+
+    def _current_player_is_owner(self, country):
+        return self.current_player == country.owner
+
+    def execute(self, _):
+        attacker = self.current_player
+        defender = self.destination.owner
+
+        attack_troops = self.attack_troops
+        defend_troops = min(self.attack_troops, self.destination.troops, 2)
 
         attack_dice = self._roll_dice(attack_troops)
         defend_dice = self._roll_dice(defend_troops)
 
+        attack_losses = 0
+        defend_losses = 0
         for (a, d) in zip(attack_dice, defend_dice):
             if a > d:  # attacker won
-                destination.troops -= 1
+                defend_losses += 1
             else:  # defender won
-                origin.troops -= 1
+                attack_losses += 1
 
-        if destination.troops == 0:
+        self.origin.troops -= attack_losses
+        self.destination.troops -= defend_losses
+
+        if self.destination.troops == 0:
             # defending country is conquered
-            destination.owner.owned_countries -= 1
-            self.current_player.owned_countries += 1
+            attacker.owned_countries += 1
+            defender.owned_countries -= 1
 
-            destination.troops = attack_troops
-            destination.owner = self.current_player
+            self.destination.troops = attack_troops
+            self.destination.owner = attacker
 
-            self.current_player.conquered_country_in_turn = True
+            attacker.conquered_country_in_turn = True
 
-
-
+            self.answer(attacker, Conquered(destination))
+            self.answer(defender, Defeated(destination))
+        else:
+            self.answer(attacker, Attacked(destination, attack_losses))
+            self.answer(defender, Defended(destination, defend_losses))
 
     @staticmethod
     def _roll_dice(n):
-        return [random.randint(1, 6) for _ in range(n)].sort(reverse = True)
+        return [random.randint(1, 6) for _ in range(n)].sort(reverse=True)
 
 
-    def _check_move(self, origin, destination, troops):
-        return (self._current_player_is_owner(origin)
-                and self._current_player_is_owner(destination)
-                and origin.troops > troops)  # at least one troop must remain
+class MoveAction(Action):
+    def prepare(self, message):
+        super().prepare(message)
+        self.origin = self.board.country_for_name(message.origin)
+        self.destination = self.board.country_for_name(message.destination)
+        self.troops = message.troops
+
+    def is_permitted(self, _):
+        return (self._current_player_is_owner(self.origin)
+                and self._current_player_is_owner(self.destination)
+                and self.origin.troops > self.troops)  # at least one troop must remain
                 # TODO: do countries have to be neighbours/ connected?
 
-    def _do_move(self, origin, destination, troops):
-        origin.troops -= troops
-        destination.troops += troops
+    def _current_player_is_owner(self, country):
+        return self.current_player == country.owner
+
+    def execute(self, _):
+        self.origin.troops -= self.troops
+        self.destination.troops += self.troops
+        self.current_player.notify(Moved(origin, destination, troops))
 
 
-    def _check_get_card(self):
+class GetCardAction(Action):
+    def is_permitted(self, _):
         return self.current_player.conquered_country_in_turn
 
-    def _do_get_card(self):
+    def execute(self, _):
         new_card = random.choice(list(Card))
         self.current_player.cards.append(new_card)
+        self.current_player.notify(GotCard(new_card))
 
 
-    def _current_player_is_owner(self, country):
-        return country.owner == self.current_player
+class NextTurnAction(Action):
+    def __init__(self, board, players, actions):
+        super().__init__(board)
+        # contains all players except the current one
+        self.players = players[1:]
+        # player whose turn it is now
+        self.current_player = players[0]
+        self.actions = actions
 
-    @staticmethod
-    def _between(value, low, high):
-        return low <= value and value <= high
+    def next_turn(self):
+        pass
 
-    def next_move(self):
-        # TODO: probably more logic to set up the next player's turn
-        player = self.players[0]
+    def execute(self):
+        # rotate list with current player
         self.players.append(self.current_player)
+        self.current_player = players[0]
         self.players = self.players[1:]
-        self.current_player = player
 
+        # TODO: probably more logic to set up the next player's turn
+        player = self.current_player
         player.conquered_country_in_turn = False
-        player.available_troops = player.owned_countries // 3
+        player.available_troops = player.available_troops // 3
+
+        for action in self.actions:
+            actions.next_turn(player)
+
+
+class Logic(object):
+    """Implements the Logic for a game of Risk"""
+    def __init__(self, board, players):
+        self.board = board
+
+        self.players = []
+        for ident in players:
+            self.players.append(Player(ident))
+
+        self.distribute_countries()
+
+        # State machine that checks if an action is
+        # allowed for the current player right now
+        # and if so performs the action.
+        before_start = 'before_start'  # before the first move
+        start_of_turn = 'start_of_turn'  # at the start of a player's turn
+        got_bonus = 'got_bonus'  # player redeem a bonus
+        deploying = 'deploying'  # player is deploying troops
+        attacking = 'attacking'  # player is attacking others
+        drew_card = 'drew_card'  # player drew a card after attacking
+        moved = 'moved'  # player moved troops
+
+        redeem = BonusAction(board)
+        deploy = DeployAction(board)
+        attack = AttackAction(board)
+        get_card = GetCardAction(board)
+        move = MoveAction(board)
+
+        actions = [redeem, deploy, attack, get_card, move]
+        next_turn = NextTurnAction(board, players, actions)
+
+
+        states = [before_start, start_of_turn, got_bonus, deploying, attacking, moved, drew_card]
+
+        def make_transition(trigger, source, dest, action):
+            return {
+                'trigger': trigger,
+                'source': source,
+                'dest': dest,
+                'prepare': action.prepare,
+                'conditions': action.is_permitted,
+                'after': action.execute,
+            }
+
+        trans = [
+            make_transition('redeem', start_of_turn, got_bonus, redeem),
+            make_transition('deploy',
+                [start_of_turn, got_bonus, deploying], deploying, deploy),
+            make_transition('attack', [deploying, attacking], attacking, attack),
+            make_transition('draw_card', attacking, drew_card, get_card),
+            make_transition('move',
+                [deploying, attacking, drew_card], moved, move),
+            make_transition('next_turn',
+                [before_start, deploying, attacking, drew_card, moved],
+                start_of_turn, next_turn)
+        ]
+
+        self.machine = transitions.Machine(
+            self,
+            states=states,
+            transitions=trans,
+            initial=before_start,
+            auto_transitions=False
+        )
 
     def distribute_countries(self):
         # TODO: is this a fair distribution?

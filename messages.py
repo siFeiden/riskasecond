@@ -1,13 +1,6 @@
 from enum import Enum, unique
 
 
-class ToJson(object):
-    """Provides a Json representation of an object."""
-    def json(self):
-        raise NotImplementedError
-
-
-
 class Message(object):
     """Message/ Event. Subclasses should implement _json_data or json."""
     # https://docs.python.org/3/library/asyncio-sync.html#event
@@ -51,8 +44,6 @@ class Message(object):
 
         self.id = id
 
-
-
     def _json_data(self):
         data = {}
         for attr in self.fields:
@@ -61,11 +52,14 @@ class Message(object):
         return data
 
     def json(self):
-        return {
-            'id': self.id
+        json = {
             'type': self.type.value,
             'data': self._json_data()
         }
+        if self.id is not None:
+            json['id'] = self.id
+
+        return json
 
 @Message.Type.Deployed
 class Deployed(Message):

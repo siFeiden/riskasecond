@@ -5,6 +5,7 @@ from board import Board
 from messages import Message, MessageParser, ParseError
 from logic import Logic
 from server import Server
+from statemachine import MachineError
 
 
 class Controller(Server.Callbacks):
@@ -13,8 +14,8 @@ class Controller(Server.Callbacks):
     PLAYERS_PER_GAME = 4
 
     def __init__(self):
-        self.board = None
-        self.logic = None
+        self.board = Board()
+        self.logic = Logic(self.board, ['a', 'b', 'c', 'd'])
 
         self.message_parser = MessageParser()
         self.available_players = set()
@@ -50,7 +51,7 @@ class Controller(Server.Callbacks):
 
     async def player_disconnected(self, player):
         print("Lost player: ", player)
-        self.available_players.remove(id)
+        self.available_players.remove(player)
 
         if self.logic and self.logic.is_ingame(player):
             self.logic.kick(player)
@@ -65,11 +66,39 @@ class Controller(Server.Callbacks):
                 self.logic.kick(player)
 
     def dispatch_message(self, player, message):
-        if message.type == Message.Type.Echo:
-            print('Echo message:', message)
-            self.server.send_message(player, message)
+        tpe = message.type
+
+        try:
+            success = None
+
+            if tpe == Message.Type.Echo:
+                # do nothing
+                success = True
+            elif tpe == Message.Type.Deploy:
+                success = self.logic.deploy(message)
+            elif tpe == Message.Type.Attack:
+                success = self.logic.attack(message)
+            elif tpe == Message.Type.Move:
+                success = self.logic.move(message)
+            elif tpe == Message.Type.Card:
+                success = self.logic.draw_card(message)
+            elif tpe == Message.Type.Bonus:
+                success = self.logic.bonus(message)
+            else:
+                msg = 'Unknown message type.'
+                print(msg, message.type)
+
+            if not success:
+                msg = 'Preconditions for state change not fulfilled.'
+                raise MachineError(msg)
+        except MachineError:
+            self.logic.kick(player)
         else:
-            print('Unknown message type', message_type)
+            if message.success:
+                self.server.send_message(player, message)
+
+            for (recipient, answer) in message.answers:
+                self.server.send_message(recipient, answer)
 
 
 if __name__ == '__main__':

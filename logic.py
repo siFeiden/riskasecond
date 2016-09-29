@@ -1,7 +1,7 @@
 from enum import Enum, unique
 import random
 
-import transitions
+from statemachine import Machine
 
 import messages as m
 
@@ -55,6 +55,7 @@ class Action(object):
         self.current_message = message
 
     def is_permitted(self, _):
+        # TODO: check if executing player is curren player
         return True
 
     def execute(self, _):
@@ -67,7 +68,7 @@ class Action(object):
         if player is None:
             player = self.current_player
 
-        self.current_message.add_answer(player, message)
+        self.current_message.add_answer(player.ident, message)
 
     @property
     def success(self):
@@ -317,7 +318,7 @@ class Logic(object):
                             drew_card, moved], start_of_turn, next_turn)
         ]
 
-        self.machine = transitions.Machine(
+        self.machine = Machine(
             self,
             states=states,
             transitions=trans,
@@ -328,7 +329,7 @@ class Logic(object):
     def distribute_countries(self):
         # TODO: is this a fair distribution?
         num_players = len(self.players)
-        countries = self.board.countries()
+        countries = self.board.countries_list()
         random.shuffle(countries)
 
         for i, country in enumerate(countries):

@@ -29,6 +29,7 @@ class Message(object):
         Finished = 13
 
         def __call__(self, cls):
+            self.message_class = cls
             cls.type = self
             return cls
 
@@ -65,8 +66,8 @@ class Message(object):
 
         return message_json
 
-    def answer(self, message):
-        self.answers.append(message)
+    def add_answer(self, player, message):
+        self.answers.append((player, message))
 
 
 @Message.Type.Echo
@@ -74,6 +75,7 @@ class EchoMessage(Message):
     def __init__(self, data, ident=None):
         super().__init__(data, ident)
         self.data = data
+        self.success = True
 
     def _json_data(self):
         return self.data
@@ -131,7 +133,7 @@ class MessageParser(object):
         try:
             payload_json = json.loads(payload)
             message_type = Message.Type(payload_json['type'])
-            message_class = self.type_to_class[message_type]
+            message_class = message_type.message_class
             message_data = payload_json['data']
             message_id = payload_json.get('id', None)
 

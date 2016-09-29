@@ -1,5 +1,21 @@
 from collections import defaultdict
-import random
+
+
+class Country(object):
+    """A Country in a Risk Map"""
+    def __init__(self, name, owner=None, troops=0):
+        self.name = name
+        self.owner = owner
+        self.troops = troops
+
+    def __eq__(self, other):
+        return self.name == other.name
+
+    def __ne__(self, other):
+        return self.name != other.name
+
+    def __hash__(self):
+        return hash(self.name)
 
 
 class Board(object):
@@ -35,42 +51,3 @@ class Board(object):
 
     def countries_list(self):
         return list(self.countries)
-
-    def move_troops(self, origin, destination, troops):
-        # TODO: range checks
-        # TODO: check movement logic
-        origin = self.country_names[origin]
-        destination = self.country_names[destination]
-
-        if destination.troops == 0:
-            destination.owner = origin.owner
-
-        origin.troops -= troops
-        destination.troops += troops
-
-    def attack(self, origin, destination, attack_troops, defend_troops):
-        # TODO: range checks
-        # TODO: correct attacking logic
-        origin = self.country_names[origin]
-        destination = self.country_names[destination]
-
-        # some arbitrary logic as prototype
-        if random.randint(0, 1):  # attacker wins
-            origin.troops -= attack_troops - 1
-            destination.troops = attack_troops - 1
-        else:  # defender wins
-            origin.troops -= attack_troops
-
-
-class Country(object):
-    """A Country in a Risk Map"""
-    def __init__(self, name, owner=None, troops=0):
-        self.name = name
-        self.owner = owner
-        self.troops = troops
-
-    def __eq__(self, other):
-        return self.name == other.name
-
-    def __hash__(self):
-        return hash(self.name)

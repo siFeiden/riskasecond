@@ -14,8 +14,8 @@ class Card(Enum):
     ARTILLERY = 3
 
 
-class Redeem(Enum):
-    """Redeem three Cards for bonus troops."""
+class Bonus(Enum):
+    """Trade in three cards for bonus troops."""
     INFANTRY = ([Card.INFANTRY]  * 3, 4)
     CAVALRY = ([Card.CAVALRY]   * 3, 6)
     ARTILLERY = ([Card.ARTILLERY] * 3, 8)
@@ -81,18 +81,18 @@ class Action(object):
 class BonusAction(Action):
     def prepare(self, message):
         super().prepare(message)
-        self.redeem = None  # TODO
+        self.bonus = None  # TODO
 
     def is_permitted(self, _):
         player_cards = self.current_player.cards.copy()
-        redeem_cards, _ = self.redeem.value
+        bonus_cards, _ = self.bonus.value
 
         # check if player has every card needed to redeem what he claims
-        for card in redeem_cards:
+        for card in bonus_cards:
             try:
                 player_cards.remove(card)
             except ValueError:
-                # player wants to redeem card but does not have it
+                # player wants to trade in card but does not have it
                 return False
 
         # player has all cards
@@ -102,10 +102,10 @@ class BonusAction(Action):
         player = self.current_player
         player_cards = player.cards
 
-        redeem_cards, value = self.redeem.value
+        bonus_cards, value = self.bonus.value
         player.available_troops += value
 
-        for card in redeem_cards:
+        for card in bonus_cards:
             player_cards.remove(card)
 
         self.success = True
@@ -274,20 +274,20 @@ class Logic(object):
         # states
         before_start = 'before_start'  # before the first move
         start_of_turn = 'start_of_turn'  # at the start of a player's turn
-        got_bonus = 'got_bonus'  # player redeem a bonus
+        got_bonus = 'got_bonus'  # player traded cards for a bonus
         deploying = 'deploying'  # player is deploying troops
         attacking = 'attacking'  # player is attacking others
         drew_card = 'drew_card'  # player drew a card after attacking
         moved = 'moved'  # player moved troops
 
         # actions
-        redeem = BonusAction(board)
+        bonus = BonusAction(board)
         deploy = DeployAction(board)
         attack = AttackAction(board)
         get_card = GetCardAction(board)
         move = MoveAction(board)
 
-        actions = [redeem, deploy, attack, get_card, move]
+        actions = [bonus, deploy, attack, get_card, move]
         next_turn = NextTurnAction(board, players, actions)
 
 
@@ -305,7 +305,7 @@ class Logic(object):
             }
 
         trans = [
-            make_transition('redeem', start_of_turn, got_bonus, redeem),
+            make_transition('bonus', start_of_turn, got_bonus, bonus),
             make_transition('deploy', [start_of_turn, got_bonus, deploying],
                             deploying, deploy),
             make_transition('attack', [deploying, attacking],

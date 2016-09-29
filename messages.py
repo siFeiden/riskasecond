@@ -116,7 +116,8 @@ class Card(Message):
 
 @Message.Type.Bonus
 class Bonus(Message):
-    fields = ['redeem']
+    # TODO: see logic.py:84
+    fields = ['bonus']
 
 
 class MessageParser(object):

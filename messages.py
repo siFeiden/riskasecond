@@ -1,48 +1,50 @@
 from enum import Enum, unique
+import json
 
 
 class Message(object):
-    """Message/ Event. Subclasses should implement _json_data or json."""
-    # https://docs.python.org/3/library/asyncio-sync.html#event
+    """
+    Message/ Event. Subclasses must define a type field with a value
+    from Message.Type.
+    """
     @unique
     class Type(Enum):
-        """Message type. Can be used as a decorator(see __call__)."""
-        # Messages from players
+        """Message type. Can be used as a class decorator(see __call__)."""
         Echo = 1
         Deploy = 2
+
         Attack = 3
-        Move = 4
-        Finished = 5
-        Board = 6
-        Players = 7
+        Conquered = 4
+        Defeated = 5
+        Defended = 6
+
+        Move = 7
         Card = 8
-        Redeem = 9
+        Bonus = 9
+
+        # not yet implemented
         GameEnd = 10
         Kick = 11
         Quit = 12
-
-        # Answers to players
-        Redeemed = 13
-        Deployed = 14
-        Conquered = 15
-        Defeated = 16
-        Attacked = 17
-        Defended = 18
-        Moved = 19
-        GotCard = 20
+        Finished = 13
 
         def __call__(self, cls):
             cls.type = self
             return cls
 
-    def __init__(self, data, id = None):
+
+    fields = []
+
+    def __init__(self, data, ident=None):
         for attr in self.fields:
             try:
                 setattr(self, attr, data[attr])
             except KeyError:
                 raise ValueError('Missing field %s' % attr)
 
-        self.id = id
+        self.ident = ident
+        self.success = None
+        self.answers = []
 
     def _json_data(self):
         data = {}
@@ -52,113 +54,91 @@ class Message(object):
         return data
 
     def json(self):
-        json = {
+        message_json = {
             'type': self.type.value,
             'data': self._json_data()
         }
-        if self.id is not None:
-            json['id'] = self.id
+        if self.ident is not None:
+            message_json['id'] = self.ident
+        if self.success is not None:
+            message_json['success'] = self.success
 
-        return json
+        return message_json
 
-@Message.Type.Deployed
-class Deployed(Message):
+    def answer(self, message):
+        self.answers.append(message)
+
+
+@Message.Type.Echo
+class EchoMessage(Message):
+    def __init__(self, data, ident=None):
+        super().__init__(data, ident)
+        self.data = data
+
+    def _json_data(self):
+        return self.data
+
+
+@Message.Type.Deploy
+class Deploy(Message):
     fields = ['country', 'troops']
 
 
-@Message.Type.Redeemed
-class Redeemed(Message):
-    def __init__(self, redeem):
-        self.redeem = redeem
-
-    def _json_data(self):
-        return {
-            'value': redeem.value[1]
-        }
-
-
-@Message.Type.Deployed
-class Deployed(Message):
-    def __init__(self, country, troops):
-        self.country = country
-        self.troops = troops
-
-    def _json_data(self):
-        return {
-            'country': self.country.name,
-            'troops': self.troops
-        }
+@Message.Type.Attack
+class Attack(Message):
+    fields = ['origin', 'destination', 'attack_troops']
 
 
 @Message.Type.Conquered
 class Conquered(Message):
-    def __init__(self, country):
-        self.country = country
-
-    def _json_data(self):
-        return {
-            'country': self.country.name
-        }
+    fields = ['country']
 
 
 @Message.Type.Defeated
 class Defeated(Message):
-    def __init__(self, country):
-        self.country = country
-
-    def _json_data(self):
-        return {
-            'country': self.country.name
-        }
-
-
-@Message.Type.Attacked
-class Attacked(Message):
-    def __init__(self, country, losses):
-        self.country = country
-        self.losses = losses
-
-    def _json_data(self):
-        return {
-            'country': self.country.name,
-            'losses': self.losses
-        }
+    fields = ['country']
 
 
 @Message.Type.Defended
 class Defended(Message):
-    def __init__(self, country, losses):
-        self.country = country
-        self.losses = losses
+    fields = ['country', 'losses']
 
-    def _json_data(self):
-        return {
-            'country': self.country.name,
-            'losses': self.losses
+
+@Message.Type.Move
+class Move(Message):
+    fields = ['origin', 'destination', 'troops']
+
+
+@Message.Type.Card
+class Card(Message):
+    fields = ['card']
+
+
+@Message.Type.Bonus
+class Bonus(Message):
+    fields = ['redeem']
+
+
+class MessageParser(object):
+    """Parser for Messages"""
+    def __init__(self):
+        self.type_to_class = {
+            Message.Type.Echo: EchoMessage
         }
 
+    def parse(self, payload):
+        try:
+            payload_json = json.loads(payload)
+            message_type = Message.Type(payload_json['type'])
+            message_class = self.type_to_class[message_type]
+            message_data = payload_json['data']
+            message_id = payload_json.get('id', None)
 
-@Message.Type.Moved
-class Moved(Message):
-    def __init__(self, origin, destination, troops):
-        self.origin = origin
-        self.destination = destination
-        self.troops = troops
-
-    def _json_data(self):
-        return {
-            'origin': self.origin.name,
-            'destination': self.destination.name,
-            'troops': self.troops
-        }
+            return message_class(message_data, message_id)
+        except (json.JSONDecodeError, ValueError, KeyError):
+            raise ParseError
 
 
-@Message.Type.GotCard
-class GotCard(Message):
-    def __init__(self, card):
-        self.card = card
-
-    def _json_data(self):
-        return {
-            'card': self.card.value
-        }
+class ParseError(Exception):
+    """Thrown when parsing fails."""
+    pass

@@ -2,7 +2,7 @@ import asyncio as aio
 import random
 
 from board import Board
-from link import Message, MessageParser, ParseError
+from messages import Message, MessageParser, ParseError
 from logic import Logic
 from server import Server
 

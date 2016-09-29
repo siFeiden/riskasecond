@@ -3,6 +3,8 @@ import random
 
 import transitions
 
+import messages as m
+
 
 @unique
 class Card(Enum):
@@ -14,8 +16,8 @@ class Card(Enum):
 
 class Redeem(Enum):
     """Redeem three Cards for bonus troops."""
-    INFANTRY  = ([Card.INFANTRY]  * 3, 4)
-    CAVALRY   = ([Card.CAVALRY]   * 3, 6)
+    INFANTRY = ([Card.INFANTRY]  * 3, 4)
+    CAVALRY = ([Card.CAVALRY]   * 3, 6)
     ARTILLERY = ([Card.ARTILLERY] * 3, 8)
     MIXED = ([Card.INFANTRY, Card.CAVALRY, Card.ARTILLERY], 10)
 
@@ -46,6 +48,8 @@ class Player(object):
 class Action(object):
     def __init__(self, board):
         self.board = board
+        self.current_player = None
+        self.current_message = None
 
     def prepare(self, message):
         self.current_message = message
@@ -64,6 +68,14 @@ class Action(object):
             player = self.current_player
 
         self.current_message.add_answer(player, message)
+
+    @property
+    def success(self):
+        return self.current_message.success
+
+    @success.setter
+    def success(self, success):
+        self.current_message.success = success
 
 
 class BonusAction(Action):
@@ -96,7 +108,7 @@ class BonusAction(Action):
         for card in redeem_cards:
             player_cards.remove(card)
 
-        self.answer(Redeemed(redeem))
+        self.success = True
 
 
 class DeployAction(Action):
@@ -113,7 +125,7 @@ class DeployAction(Action):
         self.country.troops += self.troops
         self.current_player.available_troops -= self.troops
 
-        self.answer(Deployed(self.country, self.troops))
+        self.success = True
 
 
 class AttackAction(Action):
@@ -127,7 +139,8 @@ class AttackAction(Action):
     def is_permitted(self, _):
         return (self._current_player_is_owner(self.origin)
                 and not self._current_player_is_owner(self.destination)
-                and self.origin.troops > self.attack_troops  # one troop must remain
+                # use > since one troop must remain on attacking country
+                and self.origin.troops > self.attack_troops
                 and self.attack_troops >= 1
                 and self.attack_troops <= 3)
 
@@ -141,16 +154,9 @@ class AttackAction(Action):
         attack_troops = self.attack_troops
         defend_troops = min(self.attack_troops, self.destination.troops, 2)
 
-        attack_dice = self._roll_dice(attack_troops)
-        defend_dice = self._roll_dice(defend_troops)
-
-        attack_losses = 0
-        defend_losses = 0
-        for (a, d) in zip(attack_dice, defend_dice):
-            if a > d:  # attacker won
-                defend_losses += 1
-            else:  # defender won
-                attack_losses += 1
+        attack_losses, defend_losses = self._fight_for_country(
+            attack_troops, defend_troops
+        )
 
         self.origin.troops -= attack_losses
         self.destination.troops -= defend_losses
@@ -165,11 +171,25 @@ class AttackAction(Action):
 
             attacker.conquered_country_in_turn = True
 
-            self.answer(attacker, Conquered(destination))
-            self.answer(defender, Defeated(destination))
+            self.answer(m.Conquered(self.destination), attacker)
+            self.answer(m.Defeated(self.destination), defender)
         else:
-            self.answer(attacker, Attacked(destination, attack_losses))
-            self.answer(defender, Defended(destination, defend_losses))
+            self.success = True
+            self.answer(m.Defended(self.destination, defend_losses), defender)
+
+    def _fight_for_country(self, attack_troops, defend_troops):
+        attack_dice = self._roll_dice(attack_troops)
+        defend_dice = self._roll_dice(defend_troops)
+
+        attack_losses = 0
+        defend_losses = 0
+        for (attack_score, defend_score) in zip(attack_dice, defend_dice):
+            if attack_score > defend_score:  # attacker won
+                defend_losses += 1
+            else:  # defender won
+                attack_losses += 1
+
+        return attack_losses, defend_losses
 
     @staticmethod
     def _roll_dice(n):
@@ -186,7 +206,8 @@ class MoveAction(Action):
     def is_permitted(self, _):
         return (self._current_player_is_owner(self.origin)
                 and self._current_player_is_owner(self.destination)
-                and self.origin.troops > self.troops)  # at least one troop must remain
+                # use > since at least one troop must remain in origin country
+                and self.origin.troops > self.troops)
                 # TODO: do countries have to be neighbours/ connected?
 
     def _current_player_is_owner(self, country):
@@ -195,7 +216,7 @@ class MoveAction(Action):
     def execute(self, _):
         self.origin.troops -= self.troops
         self.destination.troops += self.troops
-        self.current_player.notify(Moved(origin, destination, troops))
+        self.success = True
 
 
 class GetCardAction(Action):
@@ -205,7 +226,7 @@ class GetCardAction(Action):
     def execute(self, _):
         new_card = random.choice(list(Card))
         self.current_player.cards.append(new_card)
-        self.current_player.notify(GotCard(new_card))
+        self.success = True
 
 
 class NextTurnAction(Action):
@@ -217,13 +238,13 @@ class NextTurnAction(Action):
         self.current_player = players[0]
         self.actions = actions
 
-    def next_turn(self):
+    def next_turn(self, player):
         pass
 
-    def execute(self):
+    def execute(self, _):
         # rotate list with current player
         self.players.append(self.current_player)
-        self.current_player = players[0]
+        self.current_player = self.players[0]
         self.players = self.players[1:]
 
         # TODO: probably more logic to set up the next player's turn
@@ -232,7 +253,7 @@ class NextTurnAction(Action):
         player.available_troops = player.available_troops // 3
 
         for action in self.actions:
-            actions.next_turn(player)
+            action.next_turn(player)
 
 
 class Logic(object):
@@ -249,6 +270,8 @@ class Logic(object):
         # State machine that checks if an action is
         # allowed for the current player right now
         # and if so performs the action.
+
+        # states
         before_start = 'before_start'  # before the first move
         start_of_turn = 'start_of_turn'  # at the start of a player's turn
         got_bonus = 'got_bonus'  # player redeem a bonus
@@ -257,6 +280,7 @@ class Logic(object):
         drew_card = 'drew_card'  # player drew a card after attacking
         moved = 'moved'  # player moved troops
 
+        # actions
         redeem = BonusAction(board)
         deploy = DeployAction(board)
         attack = AttackAction(board)
@@ -267,7 +291,8 @@ class Logic(object):
         next_turn = NextTurnAction(board, players, actions)
 
 
-        states = [before_start, start_of_turn, got_bonus, deploying, attacking, moved, drew_card]
+        states = [before_start, start_of_turn, got_bonus,
+                  deploying, attacking, moved, drew_card]
 
         def make_transition(trigger, source, dest, action):
             return {
@@ -281,15 +306,15 @@ class Logic(object):
 
         trans = [
             make_transition('redeem', start_of_turn, got_bonus, redeem),
-            make_transition('deploy',
-                [start_of_turn, got_bonus, deploying], deploying, deploy),
-            make_transition('attack', [deploying, attacking], attacking, attack),
+            make_transition('deploy', [start_of_turn, got_bonus, deploying],
+                            deploying, deploy),
+            make_transition('attack', [deploying, attacking],
+                            attacking, attack),
             make_transition('draw_card', attacking, drew_card, get_card),
-            make_transition('move',
-                [deploying, attacking, drew_card], moved, move),
-            make_transition('next_turn',
-                [before_start, deploying, attacking, drew_card, moved],
-                start_of_turn, next_turn)
+            make_transition('move', [deploying, attacking, drew_card],
+                            moved, move),
+            make_transition('next_turn', [before_start, deploying, attacking,
+                            drew_card, moved], start_of_turn, next_turn)
         ]
 
         self.machine = transitions.Machine(
@@ -318,4 +343,4 @@ class Logic(object):
 
     def kick(self, player):
         # TODO: remove player from game, board, etc.
-        print('kick idiot', player)
+        print('kick idiot', self.players, player)

@@ -1,0 +1,3 @@
+[submodule "transitions"]
+	path = transitions
+	url = git@github.com:tyarkoni/transitions.git

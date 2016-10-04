@@ -1,4 +1,4 @@
-from unittest import TestCase
+from unittest import TestCase, skip
 
 import risk.logic
 import risk.board
@@ -19,6 +19,7 @@ class TestLogic(TestCase):
         self.assertTrue(self.logic.is_ingame(self.p2))
         self.assertFalse(self.logic.is_ingame(self.p3))
 
+    @skip('Not yet implemented.')
     def test_kick(self):
         self.assertTrue(self.logic.is_ingame(self.p1))
         self.assertTrue(self.logic.is_ingame(self.p2))

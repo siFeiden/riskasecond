@@ -391,13 +391,17 @@ class Logic(object):
             country.owner = player
             player.owned_countries += 1
 
-
     def is_ingame(self, player):
         """Check if a player participates in the game."""
-        # TODO: fails if player is not instanceof(Player)
-        return player in self.players
+        participants = self.players
+
+        if not isinstance(player, Player):
+            participants = map(lambda p: p.ident, participants)
+
+        return player in participants
 
     def kick(self, player):
         """Kick a player from the game."""
         # TODO: remove player from game, board, etc.
+        # TODO: unskip test
         print('kick idiot', self.players, player)

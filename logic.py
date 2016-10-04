@@ -8,7 +8,7 @@ import messages as m
 
 @unique
 class Card(Enum):
-    """Card."""
+    """Bonus Card."""
     INFANTRY = 1
     CAVALRY = 2
     ARTILLERY = 3
@@ -23,16 +23,20 @@ class Bonus(Enum):
 
 
 class Player(object):
-    """Wrap a player identifier with additional information
-        used during a game."""
+    """
+    Wrap a player identifier with additional information used during a game.
+    """
+
     def __init__(self, ident):
+        """The player identifier."""
         self.ident = ident
+        """Number of countries this player owns."""
         self.owned_countries = 0
-        # used to check if player may draw a card
+        """Flag to check if the player may draw a card."""
         self.conquered_country_in_turn = False
-        # troops the player may deploy in this turn
+        """Troops the player may deploy in this turn."""
         self.available_troops = 0
-        # player's bonus cards
+        """The player's bonus cards."""
         self.cards = []
 
     def __eq__(self, other):
@@ -46,25 +50,53 @@ class Player(object):
 
 
 class Action(object):
+    """
+    Base class for actions that can be performed during a game.
+
+    This class models actions for a game and is supposed to be extended.
+    Each action must fulfill certain preconditions before being executed.
+    Use is_permitted() to check the preconditions for the action and
+    execute() to apply the action to the current game state.
+    An action instance is used during the whole game for every turn.
+    At the start of every turn, next_turn() is called is called with the
+    new current player. Before checks and execution, prepare() is called.
+    To simplify communicating the result or effects of an action,
+    answer() can be used to send messages to the players that are affected.
+
+    Attributes:
+    board, current_player, current_message, success
+
+    Methods:
+    prepare, is_permitted, execute, next_turn, answer
+    """
+
     def __init__(self, board):
         self.board = board
         self.current_player = None
         self.current_message = None
 
     def prepare(self, message):
+        """Extend this method to store properties of the message."""
         self.current_message = message
 
     def is_permitted(self, _):
-        # TODO: check if executing player is curren player
+        """Extend this method to check if the action is allowed."""
+        # TODO: check if executing player is current player
         return True
 
     def execute(self, _):
+        """Override this method to execute the action."""
         pass
 
     def next_turn(self, player):
+        """Extend/ Override this method to prepare for the next turn."""
         self.current_player = player
 
     def answer(self, message, player=None):
+        """
+        Store an answer to be sent to the given player.
+        If player is None, the current player is used as recipient.
+        """
         if player is None:
             player = self.current_player
 
@@ -258,10 +290,28 @@ class NextTurnAction(Action):
 
 
 class Logic(object):
-    """Implements the Logic for a game of Risk"""
+    """
+    Contains the Logic for a game of Risk.
+
+    Each turn in a game is a sequence of actions by the current
+    player. Each action is modelled by the Action class and used
+    here in a state machine that allows all possible actions only
+    if they are allowed according to the game's rules.
+
+    Attributes:
+    board, players, machine
+
+    Public Methods:
+    distribute_countries, is_ingame, kick
+    """
+
     def __init__(self, board, players):
+        """ Create a new Logic for the given board and players."""
+
+        """Store the board of the game."""
         self.board = board
 
+        """Store all participating players"""
         self.players = []
         for ident in players:
             self.players.append(Player(ident))
@@ -327,6 +377,10 @@ class Logic(object):
         )
 
     def distribute_countries(self):
+        """
+        Distribute the board's countries to the participating players.
+        Changes the owner attribute of the countries stored in the board.
+        """
         # TODO: is this a fair distribution?
         num_players = len(self.players)
         countries = self.board.countries_list()
@@ -339,9 +393,11 @@ class Logic(object):
 
 
     def is_ingame(self, player):
+        """Check if a player participates in the game."""
         # TODO: fails if player is not instanceof(Player)
         return player in self.players
 
     def kick(self, player):
+        """Kick a player from the game."""
         # TODO: remove player from game, board, etc.
         print('kick idiot', self.players, player)

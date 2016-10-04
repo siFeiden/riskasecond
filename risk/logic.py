@@ -3,7 +3,7 @@ import random
 
 from statemachine import Machine
 
-import messages as m
+from . import messages as m
 
 
 @unique

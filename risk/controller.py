@@ -1,10 +1,10 @@
 import asyncio as aio
 import random
 
-from board import Board
-from messages import Message, MessageParser, ParseError
-from logic import Logic
-from server import Server
+from .board import Board
+from .messages import Message, MessageParser, ParseError
+from .logic import Logic
+from .server import Server
 from statemachine import MachineError
 
 
